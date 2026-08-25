@@ -1,6 +1,7 @@
 package com.smartfit.backend.controller;
 
 
+import com.smartfit.backend.common.Result;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,9 +13,11 @@ public class HealthController {
 
 
     @GetMapping("/health")
-    public String health(){
+    public Result<String> health(){
 
-        return "SmartFit AI Coach running";
+        return Result.success(
+                "SmartFit AI Coach running"
+        );
 
     }
 
