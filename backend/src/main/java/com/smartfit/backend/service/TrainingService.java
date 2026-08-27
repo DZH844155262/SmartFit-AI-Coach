@@ -19,6 +19,7 @@ import com.smartfit.backend.vo.TrainingExerciseVO;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
 import com.smartfit.backend.vo.TrainingSetVO;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import com.smartfit.backend.vo.TrainingSessionSummaryVO;
@@ -32,6 +33,14 @@ import com.smartfit.backend.vo.TrainingSessionListItemVO;
 
 import com.smartfit.backend.vo.ExerciseHistoryItemVO;
 import com.smartfit.backend.vo.ExerciseTrendVO;
+import com.smartfit.backend.entity.TrainingPlanDay;
+import com.smartfit.backend.mapper.TrainingPlanDayMapper;
+import com.smartfit.backend.mapper.TrainingPlanMapper;
+import com.smartfit.backend.vo.PlanExerciseComparisonVO;
+import com.smartfit.backend.vo.TrainingPlanComparisonVO;
+import com.smartfit.backend.vo.TrainingPlanExerciseVO;
+import com.smartfit.backend.mapper.TrainingPlanExerciseMapper;
+
 
 @Service
 public class TrainingService {
@@ -41,6 +50,9 @@ public class TrainingService {
     private final TrainingSessionMapper trainingSessionMapper;
     private final TrainingExerciseMapper trainingExerciseMapper;
     private final TrainingSetMapper trainingSetMapper;
+    private final TrainingPlanDayMapper trainingPlanDayMapper;
+    private final TrainingPlanMapper trainingPlanMapper;
+    private final TrainingPlanExerciseMapper trainingPlanExerciseMapper;
 
 
     public TrainingService(
@@ -48,15 +60,20 @@ public class TrainingService {
             ExerciseMapper exerciseMapper,
             TrainingSessionMapper trainingSessionMapper,
             TrainingExerciseMapper trainingExerciseMapper,
-            TrainingSetMapper trainingSetMapper
+            TrainingSetMapper trainingSetMapper,
+            TrainingPlanDayMapper trainingPlanDayMapper,
+            TrainingPlanMapper trainingPlanMapper,
+            TrainingPlanExerciseMapper trainingPlanExerciseMapper
     ) {
         this.appUserMapper = appUserMapper;
         this.exerciseMapper = exerciseMapper;
         this.trainingSessionMapper = trainingSessionMapper;
         this.trainingExerciseMapper = trainingExerciseMapper;
         this.trainingSetMapper = trainingSetMapper;
+        this.trainingPlanDayMapper = trainingPlanDayMapper;
+        this.trainingPlanMapper = trainingPlanMapper;
+        this.trainingPlanExerciseMapper = trainingPlanExerciseMapper;
     }
-
 
     @Transactional
     public TrainingSession createSession(
@@ -70,6 +87,36 @@ public class TrainingService {
                     HttpStatus.NOT_FOUND,
                     "用户不存在"
             );
+        }
+
+        // 如果这次训练来自某个训练计划日
+        if (request.getPlanDayId() != null) {
+
+            // 1. 先查这个 Plan Day 存不存在
+            TrainingPlanDay planDay =
+                    trainingPlanDayMapper.findById(
+                            request.getPlanDayId()
+                    );
+
+            if (planDay == null) {
+                throw new BusinessException(
+                        HttpStatus.NOT_FOUND,
+                        "训练计划日不存在"
+                );
+            }
+
+
+            // 2. 再检查这个 Plan 是否属于当前用户
+            if (trainingPlanMapper.countByIdAndUserId(
+                    planDay.getPlanId(),
+                    userId
+            ) == 0) {
+
+                throw new BusinessException(
+                        HttpStatus.FORBIDDEN,
+                        "无权使用该训练计划"
+                );
+            }
         }
 
 
@@ -94,9 +141,22 @@ public class TrainingService {
         TrainingSession session = new TrainingSession();
 
         session.setUserId(userId);
-        session.setSessionDate(request.getSessionDate());
-        session.setTitle(request.getTitle());
-        session.setNotes(request.getNotes());
+
+        session.setPlanDayId(
+                request.getPlanDayId()
+        );
+
+        session.setSessionDate(
+                request.getSessionDate()
+        );
+
+        session.setTitle(
+                request.getTitle()
+        );
+
+        session.setNotes(
+                request.getNotes()
+        );
 
         trainingSessionMapper.insert(session);
 
@@ -573,5 +633,337 @@ public class TrainingService {
 
 
         return trend;
+    }
+    public TrainingPlanComparisonVO getPlanComparison(
+            Long sessionId
+    ) {
+
+        // 1. 查询实际训练
+        TrainingSession session =
+                trainingSessionMapper.findById(sessionId);
+
+        if (session == null) {
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练记录不存在"
+            );
+        }
+
+
+        // 2. 自由训练没有Plan Day，无法进行计划对比
+        if (session.getPlanDayId() == null) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "该训练记录不属于任何训练计划"
+            );
+        }
+
+
+        // 3. 查询对应的Plan Day
+        TrainingPlanDay planDay =
+                trainingPlanDayMapper.findById(
+                        session.getPlanDayId()
+                );
+
+        if (planDay == null) {
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练计划日不存在"
+            );
+        }
+
+
+        // 4. 查询计划中的所有动作
+        List<TrainingPlanExerciseVO> plannedExercises =
+                trainingPlanExerciseMapper.findByPlanDayId(
+                        planDay.getId()
+                );
+
+
+        // 5. 查询实际完成的所有动作
+        List<TrainingExerciseVO> actualExercises =
+                trainingExerciseMapper.findBySessionId(
+                        sessionId
+                );
+
+
+        List<PlanExerciseComparisonVO> comparisons =
+                new ArrayList<>();
+
+        int totalTargetSets = 0;
+        int totalSuccessfulSets = 0;
+
+
+        // 6. 逐个比较计划动作
+        for (TrainingPlanExerciseVO planned
+                : plannedExercises) {
+
+            PlanExerciseComparisonVO comparison =
+                    new PlanExerciseComparisonVO();
+
+            comparison.setExerciseId(
+                    planned.getExerciseId()
+            );
+
+            comparison.setExerciseName(
+                    planned.getExerciseName()
+            );
+
+            comparison.setTargetSets(
+                    planned.getTargetSets()
+            );
+
+            comparison.setTargetRepsMin(
+                    planned.getTargetRepsMin()
+            );
+
+            comparison.setTargetRepsMax(
+                    planned.getTargetRepsMax()
+            );
+
+            comparison.setTargetWeightKg(
+                    planned.getTargetWeightKg()
+            );
+
+            comparison.setTargetRpe(
+                    planned.getTargetRpe()
+            );
+
+
+            totalTargetSets += planned.getTargetSets();
+
+
+            // 找到对应的实际动作
+            TrainingExerciseVO matchedActual = null;
+
+            for (TrainingExerciseVO actual
+                    : actualExercises) {
+
+                if (actual.getExerciseId()
+                        .equals(planned.getExerciseId())) {
+
+                    matchedActual = actual;
+                    break;
+                }
+            }
+
+
+            // 计划里有，但实际完全没练这个动作
+            if (matchedActual == null) {
+
+                comparison.setActualSets(0);
+                comparison.setSuccessfulSets(0);
+
+                comparison.setCompletionRate(
+                        BigDecimal.ZERO
+                );
+
+                comparison.setStatus("NOT_STARTED");
+
+                comparisons.add(comparison);
+
+                continue;
+            }
+
+
+            // 7. 查询实际动作所有Sets
+            List<TrainingSetVO> actualSets =
+                    trainingSetMapper
+                            .findByTrainingExerciseId(
+                                    matchedActual
+                                            .getTrainingExerciseId()
+                            );
+
+            comparison.setActualSets(
+                    actualSets.size()
+            );
+
+
+            int successfulSets = 0;
+
+            BigDecimal rpeSum =
+                    BigDecimal.ZERO;
+
+            int rpeCount = 0;
+
+
+            // 8. 判断每个Set是否达到目标
+            for (TrainingSetVO actualSet
+                    : actualSets) {
+
+                boolean repsReached =
+                        actualSet.getReps()
+                                >= planned.getTargetRepsMin();
+
+
+                boolean weightReached = true;
+
+                // 如果计划规定了目标重量，则检查实际重量
+                if (planned.getTargetWeightKg() != null) {
+
+                    weightReached =
+                            actualSet.getWeightKg() != null
+                                    && actualSet
+                                    .getWeightKg()
+                                    .compareTo(
+                                            planned.getTargetWeightKg()
+                                    ) >= 0;
+                }
+
+
+                if (repsReached && weightReached) {
+                    successfulSets++;
+                }
+
+
+                if (actualSet.getRpe() != null) {
+
+                    rpeSum =
+                            rpeSum.add(
+                                    actualSet.getRpe()
+                            );
+
+                    rpeCount++;
+                }
+            }
+
+
+            /*
+             * 如果用户额外做了很多组，
+             * 达标组不能超过计划目标组数。
+             *
+             * 例如计划3组、实际做5组，
+             * 完成率最多仍然是100%。
+             */
+            int cappedSuccessfulSets =
+                    Math.min(
+                            successfulSets,
+                            planned.getTargetSets()
+                    );
+
+            comparison.setSuccessfulSets(
+                    cappedSuccessfulSets
+            );
+
+
+            totalSuccessfulSets +=
+                    cappedSuccessfulSets;
+
+
+            // 9. 计算该动作完成率
+            BigDecimal completionRate =
+                    BigDecimal.valueOf(
+                                    cappedSuccessfulSets
+                            )
+                            .divide(
+                                    BigDecimal.valueOf(
+                                            planned.getTargetSets()
+                                    ),
+                                    4,
+                                    RoundingMode.HALF_UP
+                            )
+                            .multiply(
+                                    BigDecimal.valueOf(100)
+                            )
+                            .setScale(
+                                    1,
+                                    RoundingMode.HALF_UP
+                            );
+
+            comparison.setCompletionRate(
+                    completionRate
+            );
+
+
+            // 10. 实际平均RPE
+            if (rpeCount > 0) {
+
+                comparison.setActualAverageRpe(
+                        rpeSum.divide(
+                                BigDecimal.valueOf(rpeCount),
+                                1,
+                                RoundingMode.HALF_UP
+                        )
+                );
+            }
+
+
+            // 11. 状态
+            if (cappedSuccessfulSets
+                    >= planned.getTargetSets()) {
+
+                comparison.setStatus("COMPLETED");
+
+            } else if (cappedSuccessfulSets > 0) {
+
+                comparison.setStatus("PARTIAL");
+
+            } else {
+
+                comparison.setStatus("NOT_COMPLETED");
+            }
+
+
+            comparisons.add(comparison);
+        }
+
+
+        // 12. 整体完成率
+        BigDecimal overallCompletionRate =
+                BigDecimal.ZERO;
+
+        if (totalTargetSets > 0) {
+
+            overallCompletionRate =
+                    BigDecimal.valueOf(
+                                    totalSuccessfulSets
+                            )
+                            .divide(
+                                    BigDecimal.valueOf(
+                                            totalTargetSets
+                                    ),
+                                    4,
+                                    RoundingMode.HALF_UP
+                            )
+                            .multiply(
+                                    BigDecimal.valueOf(100)
+                            )
+                            .setScale(
+                                    1,
+                                    RoundingMode.HALF_UP
+                            );
+        }
+
+
+        // 13. 组装最终VO
+        TrainingPlanComparisonVO result =
+                new TrainingPlanComparisonVO();
+
+        result.setSessionId(sessionId);
+
+        result.setPlanDayId(
+                session.getPlanDayId()
+        );
+
+        result.setPlanDayTitle(
+                planDay.getTitle()
+        );
+
+        result.setTotalTargetSets(
+                totalTargetSets
+        );
+
+        result.setTotalSuccessfulSets(
+                totalSuccessfulSets
+        );
+
+        result.setOverallCompletionRate(
+                overallCompletionRate
+        );
+
+        result.setExercises(comparisons);
+
+
+        return result;
     }
 }

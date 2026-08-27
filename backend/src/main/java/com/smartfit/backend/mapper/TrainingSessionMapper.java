@@ -13,25 +13,27 @@ import java.util.List;
 public interface TrainingSessionMapper {
 
     @Insert("""
-            INSERT INTO training_session
-            (
-                user_id,
-                session_date,
-                title,
-                notes,
-                started_time,
-                ended_time
-            )
-            VALUES
-            (
-                #{userId},
-                #{sessionDate},
-                #{title},
-                #{notes},
-                #{startedTime},
-                #{endedTime}
-            )
-            """)
+        INSERT INTO training_session
+        (
+            user_id,
+            plan_day_id,
+            session_date,
+            title,
+            notes,
+            started_time,
+            ended_time
+        )
+        VALUES
+        (
+            #{userId},
+            #{planDayId},
+            #{sessionDate},
+            #{title},
+            #{notes},
+            #{startedTime},
+            #{endedTime}
+        )
+        """)
     @Options(
             useGeneratedKeys = true,
             keyProperty = "id"
@@ -75,8 +77,10 @@ public interface TrainingSessionMapper {
 
         LIMIT #{limit}
         """)
+
     List<TrainingSessionListItemVO> findRecentByUserId(
             @Param("userId") Long userId,
             @Param("limit") Integer limit
     );
+
 }

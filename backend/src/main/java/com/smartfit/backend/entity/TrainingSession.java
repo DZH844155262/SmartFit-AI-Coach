@@ -7,6 +7,7 @@ public class TrainingSession {
 
     private Long id;
     private Long userId;
+    private Long planDayId;
     private LocalDate sessionDate;
     private String title;
     private String notes;
@@ -77,5 +78,12 @@ public class TrainingSession {
 
     public void setCreatedTime(LocalDateTime createdTime) {
         this.createdTime = createdTime;
+    }
+    public Long getPlanDayId() {
+        return planDayId;
+    }
+
+    public void setPlanDayId(Long planDayId) {
+        this.planDayId = planDayId;
     }
 }

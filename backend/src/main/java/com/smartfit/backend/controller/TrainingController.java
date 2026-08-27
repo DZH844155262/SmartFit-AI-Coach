@@ -11,6 +11,7 @@ import com.smartfit.backend.vo.TrainingSessionSummaryVO;
 import com.smartfit.backend.vo.TrainingSessionListItemVO;
 import com.smartfit.backend.vo.ExerciseHistoryItemVO;
 import com.smartfit.backend.vo.ExerciseTrendVO;
+import com.smartfit.backend.vo.TrainingPlanComparisonVO;
 import java.util.List;
 
 @RestController
@@ -102,5 +103,17 @@ public class TrainingController {
                 );
 
         return Result.success(trend);
+    }
+    @GetMapping("/training-sessions/{sessionId}/plan-comparison")
+    public Result<TrainingPlanComparisonVO> getPlanComparison(
+            @PathVariable Long sessionId
+    ) {
+
+        TrainingPlanComparisonVO comparison =
+                trainingService.getPlanComparison(
+                        sessionId
+                );
+
+        return Result.success(comparison);
     }
 }

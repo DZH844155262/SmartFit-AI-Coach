@@ -16,10 +16,19 @@ public class TrainingSessionCreateRequest {
 
     private String notes;
 
+    private Long planDayId;
+
     @Valid
     @NotEmpty(message = "一次训练至少需要包含一个动作")
     private List<TrainingExerciseRequest> exercises;
 
+    public Long getPlanDayId() {
+        return planDayId;
+    }
+
+    public void setPlanDayId(Long planDayId) {
+        this.planDayId = planDayId;
+    }
 
     public LocalDate getSessionDate() {
         return sessionDate;
