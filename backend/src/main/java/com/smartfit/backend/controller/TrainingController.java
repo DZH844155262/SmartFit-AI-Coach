@@ -7,6 +7,7 @@ import com.smartfit.backend.service.TrainingService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
+import com.smartfit.backend.vo.TrainingSessionSummaryVO;
 
 @RestController
 @RequestMapping("/api")
@@ -41,5 +42,15 @@ public class TrainingController {
                 trainingService.getSessionDetail(sessionId);
 
         return Result.success(detail);
+    }
+    @GetMapping("/training-sessions/{sessionId}/summary")
+    public Result<TrainingSessionSummaryVO> getTrainingSessionSummary(
+            @PathVariable Long sessionId
+    ) {
+
+        TrainingSessionSummaryVO summary =
+                trainingService.getSessionSummary(sessionId);
+
+        return Result.success(summary);
     }
 }

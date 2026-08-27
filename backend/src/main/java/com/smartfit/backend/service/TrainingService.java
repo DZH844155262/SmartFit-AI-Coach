@@ -20,6 +20,13 @@ import com.smartfit.backend.vo.TrainingSessionDetailVO;
 import com.smartfit.backend.vo.TrainingSetVO;
 
 import java.util.List;
+import com.smartfit.backend.vo.TrainingSessionSummaryVO;
+import com.smartfit.backend.vo.TrainingSessionDetailVO;
+import com.smartfit.backend.vo.TrainingExerciseVO;
+import com.smartfit.backend.vo.TrainingSetVO;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Service
 public class TrainingService {
@@ -206,5 +213,89 @@ public class TrainingService {
 
 
         return detailVO;
+    }
+    public TrainingSessionSummaryVO getSessionSummary(Long sessionId) {
+
+        // 1. 先取得完整训练数据
+        TrainingSessionDetailVO detail =
+                getSessionDetail(sessionId);
+
+
+        int totalExercises = detail.getExercises().size();
+        int totalSets = 0;
+        int totalReps = 0;
+
+        BigDecimal totalVolume = BigDecimal.ZERO;
+        BigDecimal rpeSum = BigDecimal.ZERO;
+
+        int rpeCount = 0;
+
+
+        // 2. 遍历每个动作
+        for (TrainingExerciseVO exercise : detail.getExercises()) {
+
+            // 3. 遍历这个动作的每一组
+            for (TrainingSetVO set : exercise.getSets()) {
+
+                totalSets++;
+
+                totalReps += set.getReps();
+
+
+                // volume = 重量 × 次数
+                if (set.getWeightKg() != null) {
+
+                    BigDecimal setVolume =
+                            set.getWeightKg()
+                                    .multiply(
+                                            BigDecimal.valueOf(
+                                                    set.getReps()
+                                            )
+                                    );
+
+                    totalVolume =
+                            totalVolume.add(setVolume);
+                }
+
+
+                // RPE允许为空，所以需要判断
+                if (set.getRpe() != null) {
+
+                    rpeSum =
+                            rpeSum.add(set.getRpe());
+
+                    rpeCount++;
+                }
+            }
+        }
+
+
+        // 4. 计算平均RPE
+        BigDecimal averageRpe = null;
+
+        if (rpeCount > 0) {
+
+            averageRpe =
+                    rpeSum.divide(
+                            BigDecimal.valueOf(rpeCount),
+                            1,
+                            RoundingMode.HALF_UP
+                    );
+        }
+
+
+        // 5. 封装返回结果
+        TrainingSessionSummaryVO summary =
+                new TrainingSessionSummaryVO();
+
+        summary.setSessionId(sessionId);
+        summary.setTotalExercises(totalExercises);
+        summary.setTotalSets(totalSets);
+        summary.setTotalReps(totalReps);
+        summary.setTotalVolume(totalVolume);
+        summary.setAverageRpe(averageRpe);
+
+
+        return summary;
     }
 }
