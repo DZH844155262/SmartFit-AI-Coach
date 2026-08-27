@@ -8,6 +8,10 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
 import com.smartfit.backend.vo.TrainingSessionSummaryVO;
+import com.smartfit.backend.vo.TrainingSessionListItemVO;
+import com.smartfit.backend.vo.ExerciseHistoryItemVO;
+import com.smartfit.backend.vo.ExerciseTrendVO;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api")
@@ -52,5 +56,51 @@ public class TrainingController {
                 trainingService.getSessionSummary(sessionId);
 
         return Result.success(summary);
+    }
+    @GetMapping("/users/{userId}/training-sessions")
+    public Result<List<TrainingSessionListItemVO>> getRecentTrainingSessions(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "10") Integer limit
+    ) {
+
+        List<TrainingSessionListItemVO> sessions =
+                trainingService.getRecentSessions(
+                        userId,
+                        limit
+                );
+
+        return Result.success(sessions);
+    }
+    @GetMapping("/users/{userId}/exercises/{exerciseId}/history")
+    public Result<List<ExerciseHistoryItemVO>> getExerciseHistory(
+            @PathVariable Long userId,
+            @PathVariable Long exerciseId,
+            @RequestParam(defaultValue = "20") Integer limit
+    ) {
+
+        List<ExerciseHistoryItemVO> history =
+                trainingService.getExerciseHistory(
+                        userId,
+                        exerciseId,
+                        limit
+                );
+
+        return Result.success(history);
+    }
+    @GetMapping("/users/{userId}/exercises/{exerciseId}/trend")
+    public Result<ExerciseTrendVO> getExerciseTrend(
+            @PathVariable Long userId,
+            @PathVariable Long exerciseId,
+            @RequestParam(defaultValue = "20") Integer limit
+    ) {
+
+        ExerciseTrendVO trend =
+                trainingService.getExerciseTrend(
+                        userId,
+                        exerciseId,
+                        limit
+                );
+
+        return Result.success(trend);
     }
 }

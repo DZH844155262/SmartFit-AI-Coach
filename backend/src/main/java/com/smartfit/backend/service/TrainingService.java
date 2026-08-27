@@ -19,6 +19,7 @@ import com.smartfit.backend.vo.TrainingExerciseVO;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
 import com.smartfit.backend.vo.TrainingSetVO;
 
+import java.util.Collections;
 import java.util.List;
 import com.smartfit.backend.vo.TrainingSessionSummaryVO;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
@@ -27,6 +28,10 @@ import com.smartfit.backend.vo.TrainingSetVO;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import com.smartfit.backend.vo.TrainingSessionListItemVO;
+
+import com.smartfit.backend.vo.ExerciseHistoryItemVO;
+import com.smartfit.backend.vo.ExerciseTrendVO;
 
 @Service
 public class TrainingService {
@@ -297,5 +302,276 @@ public class TrainingService {
 
 
         return summary;
+    }
+    public List<TrainingSessionListItemVO> getRecentSessions(
+            Long userId,
+            Integer limit
+    ) {
+
+        // 1. 用户必须存在
+        if (appUserMapper.countById(userId) == 0) {
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "用户不存在"
+            );
+        }
+
+
+        // 2. 防止前端传入不合理数量
+        if (limit == null) {
+            limit = 10;
+        }
+
+        if (limit < 1) {
+            limit = 1;
+        }
+
+        if (limit > 50) {
+            limit = 50;
+        }
+
+
+        // 3. 查询最近训练
+        return trainingSessionMapper.findRecentByUserId(
+                userId,
+                limit
+        );
+    }
+    public List<ExerciseHistoryItemVO> getExerciseHistory(
+            Long userId,
+            Long exerciseId,
+            Integer limit
+    ) {
+
+        // 1. 检查用户
+        if (appUserMapper.countById(userId) == 0) {
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "用户不存在"
+            );
+        }
+
+
+        // 2. 检查动作
+        if (exerciseMapper.countById(exerciseId) == 0) {
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练动作不存在"
+            );
+        }
+
+
+        // 3. 控制查询数量
+        if (limit == null) {
+            limit = 20;
+        }
+
+        if (limit < 1) {
+            limit = 1;
+        }
+
+        if (limit > 100) {
+            limit = 100;
+        }
+
+
+        // 4. 查询历史表现
+        List<ExerciseHistoryItemVO> history =
+                trainingExerciseMapper.findExerciseHistory(
+                        userId,
+                        exerciseId,
+                        limit
+                );
+
+// Mapper拿的是“最新 → 最旧”
+// 前端趋势图更适合“最旧 → 最新”
+        Collections.reverse(history);
+
+        return history;
+    }
+    public ExerciseTrendVO getExerciseTrend(
+            Long userId,
+            Long exerciseId,
+            Integer limit
+    ) {
+
+        List<ExerciseHistoryItemVO> history =
+                getExerciseHistory(
+                        userId,
+                        exerciseId,
+                        limit
+                );
+
+
+        ExerciseTrendVO trend =
+                new ExerciseTrendVO();
+
+        trend.setExerciseId(exerciseId);
+        trend.setSessionCount(history.size());
+
+
+        // 少于2次训练，没有足够数据判断趋势
+        if (history.size() < 2) {
+            trend.setTrendStatus("INSUFFICIENT_DATA");
+            return trend;
+        }
+
+
+        // 第一条 = 时间最早
+        ExerciseHistoryItemVO first =
+                history.get(0);
+
+        // 最后一条 = 最近一次
+        ExerciseHistoryItemVO latest =
+                history.get(history.size() - 1);
+
+
+        trend.setStartDate(first.getSessionDate());
+        trend.setEndDate(latest.getSessionDate());
+
+        trend.setFirstMaxWeightKg(
+                first.getMaxWeightKg()
+        );
+
+        trend.setLatestMaxWeightKg(
+                latest.getMaxWeightKg()
+        );
+
+        trend.setFirstVolume(
+                first.getTotalVolume()
+        );
+
+        trend.setLatestVolume(
+                latest.getTotalVolume()
+        );
+
+
+        // 1. 最高重量变化
+        BigDecimal weightChange =
+                latest.getMaxWeightKg()
+                        .subtract(
+                                first.getMaxWeightKg()
+                        );
+
+        trend.setWeightChangeKg(weightChange);
+
+
+        // 2. 最高重量变化百分比
+        if (first.getMaxWeightKg()
+                .compareTo(BigDecimal.ZERO) != 0) {
+
+            BigDecimal weightChangePercent =
+                    weightChange
+                            .divide(
+                                    first.getMaxWeightKg(),
+                                    4,
+                                    RoundingMode.HALF_UP
+                            )
+                            .multiply(
+                                    BigDecimal.valueOf(100)
+                            )
+                            .setScale(
+                                    1,
+                                    RoundingMode.HALF_UP
+                            );
+
+            trend.setWeightChangePercent(
+                    weightChangePercent
+            );
+        }
+
+
+        // 3. Volume变化
+        BigDecimal volumeChange =
+                latest.getTotalVolume()
+                        .subtract(
+                                first.getTotalVolume()
+                        );
+
+        trend.setVolumeChange(volumeChange);
+
+
+        // 4. Volume变化百分比
+        if (first.getTotalVolume()
+                .compareTo(BigDecimal.ZERO) != 0) {
+
+            BigDecimal volumeChangePercent =
+                    volumeChange
+                            .divide(
+                                    first.getTotalVolume(),
+                                    4,
+                                    RoundingMode.HALF_UP
+                            )
+                            .multiply(
+                                    BigDecimal.valueOf(100)
+                            )
+                            .setScale(
+                                    1,
+                                    RoundingMode.HALF_UP
+                            );
+
+            trend.setVolumeChangePercent(
+                    volumeChangePercent
+            );
+        }
+
+
+        // 5. RPE变化
+        if (first.getAverageRpe() != null
+                && latest.getAverageRpe() != null) {
+
+            trend.setAverageRpeChange(
+                    latest.getAverageRpe()
+                            .subtract(
+                                    first.getAverageRpe()
+                            )
+            );
+        }
+
+
+        // 6. 生成V1趋势信号
+        int weightCompare =
+                weightChange.compareTo(
+                        BigDecimal.ZERO
+                );
+
+        int volumeCompare =
+                volumeChange.compareTo(
+                        BigDecimal.ZERO
+                );
+
+
+        if (weightCompare > 0
+                && volumeCompare >= 0) {
+
+            trend.setTrendStatus("IMPROVING");
+
+        } else if (volumeCompare > 0
+                && weightCompare >= 0) {
+
+            trend.setTrendStatus("IMPROVING");
+
+        } else if (weightCompare == 0
+                && volumeCompare == 0) {
+
+            trend.setTrendStatus("STABLE");
+
+        } else if (weightCompare < 0
+                && volumeCompare <= 0) {
+
+            trend.setTrendStatus("DECLINING");
+
+        } else if (volumeCompare < 0
+                && weightCompare <= 0) {
+
+            trend.setTrendStatus("DECLINING");
+
+        } else {
+
+            trend.setTrendStatus("MIXED");
+        }
+
+
+        return trend;
     }
 }
