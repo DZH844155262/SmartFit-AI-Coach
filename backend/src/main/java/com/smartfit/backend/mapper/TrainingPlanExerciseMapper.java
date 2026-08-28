@@ -5,6 +5,10 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import com.smartfit.backend.vo.TrainingPlanExerciseVO;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+import java.math.BigDecimal;
 
 import java.util.List;
 
@@ -66,4 +70,24 @@ public interface TrainingPlanExerciseMapper {
             keyProperty = "id"
     )
     int insert(TrainingPlanExercise trainingPlanExercise);
+
+    @Update("""
+        UPDATE training_plan_exercise
+        SET target_weight_kg = #{targetWeightKg},
+            target_sets = #{targetSets},
+            target_reps_min = #{targetRepsMin},
+            target_reps_max = #{targetRepsMax},
+            target_rpe = #{targetRpe}
+        WHERE plan_day_id = #{planDayId}
+          AND exercise_id = #{exerciseId}
+        """)
+    int updateTargets(
+            @Param("planDayId") Long planDayId,
+            @Param("exerciseId") Long exerciseId,
+            @Param("targetWeightKg") BigDecimal targetWeightKg,
+            @Param("targetSets") Integer targetSets,
+            @Param("targetRepsMin") Integer targetRepsMin,
+            @Param("targetRepsMax") Integer targetRepsMax,
+            @Param("targetRpe") BigDecimal targetRpe
+    );
 }

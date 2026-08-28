@@ -59,4 +59,17 @@ public class AiCoachController {
 
         return Result.success(response);
     }
+    @PostMapping(
+            "/ai-analyses/{analysisId}/apply"
+    )
+    public Result<Void> applyPlanAdjustments(
+            @PathVariable Long analysisId
+    ) {
+
+        aiCoachService.applyPlanAdjustments(
+                analysisId
+        );
+
+        return Result.success();
+    }
 }

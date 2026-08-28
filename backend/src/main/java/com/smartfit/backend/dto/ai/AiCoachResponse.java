@@ -1,23 +1,23 @@
 package com.smartfit.backend.dto.ai;
 
+import com.smartfit.backend.vo.PlanAdjustmentProposalVO;
+
 import java.util.List;
 
 public class AiCoachResponse {
 
-    // 0～100，本次训练综合评分
     private Integer score;
 
-    // 一段非常简短的总体评价
     private String summary;
 
-    // 积极信号
     private List<String> positiveSignals;
 
-    // 需要注意的信号
     private List<String> riskSignals;
 
-    // 下一次训练建议
     private List<String> nextSessionAdvice;
+
+    // 新增：下一次训练计划的结构化调整建议
+    private List<PlanAdjustmentProposalVO> planAdjustments;
 
 
     public Integer getScore() {
@@ -64,5 +64,15 @@ public class AiCoachResponse {
             List<String> nextSessionAdvice
     ) {
         this.nextSessionAdvice = nextSessionAdvice;
+    }
+
+    public List<PlanAdjustmentProposalVO> getPlanAdjustments() {
+        return planAdjustments;
+    }
+
+    public void setPlanAdjustments(
+            List<PlanAdjustmentProposalVO> planAdjustments
+    ) {
+        this.planAdjustments = planAdjustments;
     }
 }

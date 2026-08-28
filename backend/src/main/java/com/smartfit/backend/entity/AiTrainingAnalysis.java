@@ -22,12 +22,41 @@ public class AiTrainingAnalysis {
 
     private String nextSessionAdvice;
 
+    private String planAdjustments;
+
+    private Boolean applied;
+
+    private LocalDateTime appliedTime;
+
     private String promptVersion;
 
     private String rawResponse;
 
     private LocalDateTime createdTime;
 
+    public Boolean getApplied() {
+        return applied;
+    }
+
+    public void setApplied(Boolean applied) {
+        this.applied = applied;
+    }
+
+    public LocalDateTime getAppliedTime() {
+        return appliedTime;
+    }
+
+    public void setAppliedTime(LocalDateTime appliedTime) {
+        this.appliedTime = appliedTime;
+    }
+
+    public String getPlanAdjustments() {
+        return planAdjustments;
+    }
+
+    public void setPlanAdjustments(String planAdjustments) {
+        this.planAdjustments = planAdjustments;
+    }
 
     public Long getId() {
         return id;
