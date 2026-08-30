@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-
+import org.springframework.web.client.RestClientResponseException;
 import java.util.List;
 import java.util.Map;
 
@@ -153,5 +153,265 @@ public class DeepSeekClient {
                 HttpStatus.BAD_GATEWAY,
                 "AI服务调用失败"
         );
+    }
+    public JsonNode chatWithTools(
+            List<Map<String, Object>> messages,
+            List<Map<String, Object>> tools
+    ) {
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new BusinessException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "DeepSeek API Key未配置"
+            );
+        }
+
+
+        Map<String, Object> requestBody =
+                Map.of(
+                        "model", model,
+                        "messages", messages,
+                        "tools", tools,
+                        "tool_choice", "auto",
+
+                        // Day8第一版先关闭thinking，
+                        // 简化多轮Tool Calling
+                        "thinking", Map.of(
+                                "type", "disabled"
+                        ),
+
+                        "max_tokens", 2000
+                );
+
+
+        try {
+
+            JsonNode response =
+                    restClient
+                            .post()
+                            .uri("/chat/completions")
+                            .header(
+                                    HttpHeaders.AUTHORIZATION,
+                                    "Bearer " + apiKey
+                            )
+                            .contentType(
+                                    MediaType.APPLICATION_JSON
+                            )
+                            .body(requestBody)
+                            .retrieve()
+                            .body(JsonNode.class);
+
+
+            if (response == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_GATEWAY,
+                        "DeepSeek没有返回结果"
+                );
+            }
+
+
+            return response;
+
+
+        } catch (BusinessException e) {
+
+            throw e;
+
+        } catch (RestClientResponseException e) {
+
+            String responseBody =
+                    e.getResponseBodyAsString();
+
+            if (responseBody != null
+                    && responseBody.length() > 800) {
+
+                responseBody =
+                        responseBody.substring(0, 800);
+            }
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek Tool Calling失败，远程HTTP状态="
+                            + e.getStatusCode().value()
+                            + "，响应="
+                            + responseBody
+            );
+
+        } catch (Exception e) {
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek Tool Calling本地异常："
+                            + e.getClass().getSimpleName()
+                            + " - "
+                            + e.getMessage()
+            );
+        }
+    }
+    public JsonNode chatWithoutTools(
+            List<Map<String, Object>> messages
+    ) {
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new BusinessException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "DeepSeek API Key未配置"
+            );
+        }
+
+
+        Map<String, Object> requestBody =
+                Map.of(
+                        "model", model,
+                        "messages", messages,
+
+                        "thinking", Map.of(
+                                "type", "disabled"
+                        ),
+
+                        "max_tokens", 2500
+                );
+
+
+        try {
+
+            JsonNode response =
+                    restClient
+                            .post()
+                            .uri("/chat/completions")
+                            .header(
+                                    HttpHeaders.AUTHORIZATION,
+                                    "Bearer " + apiKey
+                            )
+                            .contentType(
+                                    MediaType.APPLICATION_JSON
+                            )
+                            .body(requestBody)
+                            .retrieve()
+                            .body(JsonNode.class);
+
+
+            if (response == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_GATEWAY,
+                        "DeepSeek没有返回最终答案"
+                );
+            }
+
+
+            return response;
+
+
+        } catch (BusinessException e) {
+
+            throw e;
+
+        } catch (RestClientResponseException e) {
+
+            String responseBody =
+                    e.getResponseBodyAsString();
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek最终总结失败，远程HTTP状态="
+                            + e.getStatusCode().value()
+                            + "，响应="
+                            + responseBody
+            );
+
+        } catch (Exception e) {
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek最终总结本地异常："
+                            + e.getClass().getSimpleName()
+                            + " - "
+                            + e.getMessage()
+            );
+        }
+    }
+    public JsonNode chatWithoutToolsJson(
+            List<Map<String, Object>> messages
+    ) {
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new BusinessException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "DeepSeek API Key未配置"
+            );
+        }
+
+
+        Map<String, Object> requestBody =
+                Map.of(
+                        "model", model,
+
+                        "messages", messages,
+
+                        "thinking", Map.of(
+                                "type", "disabled"
+                        ),
+
+                        "response_format", Map.of(
+                                "type", "json_object"
+                        ),
+
+                        "max_tokens", 2500
+                );
+
+
+        try {
+
+            JsonNode response =
+                    restClient
+                            .post()
+                            .uri("/chat/completions")
+                            .header(
+                                    HttpHeaders.AUTHORIZATION,
+                                    "Bearer " + apiKey
+                            )
+                            .contentType(
+                                    MediaType.APPLICATION_JSON
+                            )
+                            .body(requestBody)
+                            .retrieve()
+                            .body(JsonNode.class);
+
+
+            if (response == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_GATEWAY,
+                        "DeepSeek没有返回Evidence JSON"
+                );
+            }
+
+
+            return response;
+
+
+        } catch (BusinessException e) {
+
+            throw e;
+
+        } catch (RestClientResponseException e) {
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek Evidence JSON调用失败，远程HTTP状态="
+                            + e.getStatusCode().value()
+                            + "，响应="
+                            + e.getResponseBodyAsString()
+            );
+
+        } catch (Exception e) {
+
+            throw new BusinessException(
+                    HttpStatus.BAD_GATEWAY,
+                    "DeepSeek Evidence JSON本地异常："
+                            + e.getClass().getSimpleName()
+                            + " - "
+                            + e.getMessage()
+            );
+        }
     }
 }

@@ -8,24 +8,30 @@ import com.smartfit.backend.dto.ai.AiCoachRequest;
 import com.smartfit.backend.dto.ai.AiCoachResponse;
 import com.smartfit.backend.entity.AiTrainingAnalysis;
 import com.smartfit.backend.entity.FitnessProfile;
+import com.smartfit.backend.entity.TrainingSession;
 import com.smartfit.backend.exception.BusinessException;
 import com.smartfit.backend.mapper.AiTrainingAnalysisMapper;
 import com.smartfit.backend.mapper.FitnessProfileMapper;
-import com.smartfit.backend.vo.*;
+import com.smartfit.backend.mapper.TrainingPlanExerciseMapper;
+import com.smartfit.backend.mapper.TrainingSessionMapper;
+import com.smartfit.backend.vo.EvidenceAgentResponseVO;
+import com.smartfit.backend.vo.ExerciseTrendVO;
+import com.smartfit.backend.vo.PlanAdjustmentProposalVO;
+import com.smartfit.backend.vo.PlanExerciseComparisonVO;
+import com.smartfit.backend.vo.TrainingPlanComparisonVO;
+import com.smartfit.backend.vo.TrainingPlanExerciseVO;
+import com.smartfit.backend.vo.TrainingSessionDetailVO;
+import com.smartfit.backend.vo.TrainingSessionSummaryVO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import com.smartfit.backend.entity.TrainingSession;
-import com.smartfit.backend.mapper.TrainingPlanExerciseMapper;
-import com.smartfit.backend.mapper.TrainingSessionMapper;
-import com.smartfit.backend.vo.TrainingPlanExerciseVO;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
 
 @Service
 public class AiCoachService {
@@ -35,15 +41,20 @@ public class AiCoachService {
     private final DeepSeekClient deepSeekClient;
     private final ObjectMapper objectMapper;
     private final AiTrainingAnalysisMapper aiTrainingAnalysisMapper;
+    private final TrainingSessionMapper trainingSessionMapper;
+    private final TrainingPlanExerciseMapper trainingPlanExerciseMapper;
+    private final EvidenceAgentService evidenceAgentService;
 
     private final String model;
 
-    // 以后Prompt发生明显修改，就改成v2
-    private static final String PROMPT_VERSION = "v2";
 
-    private final TrainingSessionMapper trainingSessionMapper;
+    /*
+     * v1：AI训练点评
+     * v2：增加结构化 planAdjustments
+     * v3：增加 PubMed Evidence Agent
+     */
+    private static final String PROMPT_VERSION = "v3";
 
-    private final TrainingPlanExerciseMapper trainingPlanExerciseMapper;
 
     public AiCoachService(
             TrainingService trainingService,
@@ -53,8 +64,10 @@ public class AiCoachService {
             AiTrainingAnalysisMapper aiTrainingAnalysisMapper,
             TrainingSessionMapper trainingSessionMapper,
             TrainingPlanExerciseMapper trainingPlanExerciseMapper,
+            EvidenceAgentService evidenceAgentService,
             @Value("${deepseek.model}") String model
     ) {
+
         this.trainingService = trainingService;
         this.fitnessProfileMapper = fitnessProfileMapper;
         this.deepSeekClient = deepSeekClient;
@@ -62,6 +75,7 @@ public class AiCoachService {
         this.aiTrainingAnalysisMapper = aiTrainingAnalysisMapper;
         this.trainingSessionMapper = trainingSessionMapper;
         this.trainingPlanExerciseMapper = trainingPlanExerciseMapper;
+        this.evidenceAgentService = evidenceAgentService;
         this.model = model;
     }
 
@@ -71,20 +85,30 @@ public class AiCoachService {
      * 1. 收集准备发送给AI的真实训练数据
      * =========================================================
      */
-    public AiCoachRequest buildCoachRequest(Long sessionId) {
+    public AiCoachRequest buildCoachRequest(
+            Long sessionId
+    ) {
 
-        // 查询本次训练详情
+        /*
+         * 查询本次训练详情
+         */
         TrainingSessionDetailVO session =
-                trainingService.getSessionDetail(sessionId);
+                trainingService.getSessionDetail(
+                        sessionId
+                );
 
 
-        // 查询用户健身档案
+        /*
+         * 获取用户健身档案
+         */
         FitnessProfile profile =
                 fitnessProfileMapper.findByUserId(
                         session.getUserId()
                 );
 
+
         if (profile == null) {
+
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     "用户尚未完成健身建档"
@@ -92,26 +116,34 @@ public class AiCoachService {
         }
 
 
-        // 本次训练统计
+        /*
+         * 本次训练统计
+         */
         TrainingSessionSummaryVO sessionSummary =
                 trainingService.getSessionSummary(
                         sessionId
                 );
 
 
-        // 计划 vs 实际完成情况
+        /*
+         * 计划 vs 实际
+         */
         TrainingPlanComparisonVO planComparison =
                 trainingService.getPlanComparison(
                         sessionId
                 );
 
 
-        // 查询本次计划中所有动作的历史趋势
+        /*
+         * 查询本次计划动作的历史趋势
+         */
         List<ExerciseTrendVO> exerciseTrends =
                 new ArrayList<>();
 
+
         for (PlanExerciseComparisonVO exercise
                 : planComparison.getExercises()) {
+
 
             ExerciseTrendVO trend =
                     trainingService.getExerciseTrend(
@@ -120,37 +152,49 @@ public class AiCoachService {
                             20
                     );
 
-            exerciseTrends.add(trend);
+
+            exerciseTrends.add(
+                    trend
+            );
         }
 
 
-        // 组装发送给AI的数据
+        /*
+         * 组装AI Context
+         */
         AiCoachRequest request =
                 new AiCoachRequest();
+
 
         request.setUserId(
                 session.getUserId()
         );
 
+
         request.setSessionId(
                 sessionId
         );
+
 
         request.setGoal(
                 profile.getGoal()
         );
 
+
         request.setExperienceLevel(
                 profile.getExperienceLevel()
         );
+
 
         request.setSessionSummary(
                 sessionSummary
         );
 
+
         request.setPlanComparison(
                 planComparison
         );
+
 
         request.setExerciseTrends(
                 exerciseTrends
@@ -166,10 +210,18 @@ public class AiCoachService {
      * 2. 普通AI分析
      *
      * 先查数据库。
-     * 有历史结果就直接返回，不调用DeepSeek。
+     *
+     * 有：
+     * 直接返回历史结果。
+     *
+     * 没有：
+     * Evidence Agent + DeepSeek重新生成。
      * =========================================================
      */
-    public AiCoachResponse analyzeSession(Long sessionId) {
+    public AiCoachResponse analyzeSession(
+            Long sessionId
+    ) {
+
 
         AiTrainingAnalysis cached =
                 aiTrainingAnalysisMapper.findLatest(
@@ -179,7 +231,6 @@ public class AiCoachService {
                 );
 
 
-        // 数据库已经有分析结果
         if (cached != null) {
 
             return convertToResponse(
@@ -188,7 +239,6 @@ public class AiCoachService {
         }
 
 
-        // 数据库没有，才真正调用AI
         return generateAndSaveAnalysis(
                 sessionId
         );
@@ -197,12 +247,14 @@ public class AiCoachService {
 
     /*
      * =========================================================
-     * 3. 强制重新生成
+     * 3. 强制重新分析
      *
-     * 不读取旧分析，直接重新调用DeepSeek。
+     * 不读取缓存。
      * =========================================================
      */
-    public AiCoachResponse regenerateSession(Long sessionId) {
+    public AiCoachResponse regenerateSession(
+            Long sessionId
+    ) {
 
         return generateAndSaveAnalysis(
                 sessionId
@@ -212,17 +264,29 @@ public class AiCoachService {
 
     /*
      * =========================================================
-     * 4. 真正调用DeepSeek + 保存结果
+     * 4. 真正执行：
      *
-     * analyzeSession 和 regenerateSession
-     * 都可以复用这个方法。
+     * 用户训练数据
+     * ↓
+     * Evidence Agent
+     * ↓
+     * PubMed
+     * ↓
+     * 科学Evidence
+     * ↓
+     * 最终AI Coach
+     * ↓
+     * 保存结果
      * =========================================================
      */
     private AiCoachResponse generateAndSaveAnalysis(
             Long sessionId
     ) {
 
-        // 先准备AI上下文
+
+        /*
+         * 1. 用户真实训练Context
+         */
         AiCoachRequest context =
                 buildCoachRequest(
                         sessionId
@@ -231,91 +295,231 @@ public class AiCoachService {
 
         try {
 
-            // Java对象 → JSON
+
+            /*
+             * Context → JSON
+             */
             String contextJson =
                     objectMapper.writeValueAsString(
                             context
                     );
 
 
+            /*
+             * 2. 根据用户数据构造Evidence问题
+             */
+            String evidenceQuestion =
+                    buildEvidenceQuestion(
+                            contextJson
+                    );
+
+
+            /*
+             * 3. Evidence Agent
+             *
+             * 内部流程：
+             *
+             * DeepSeek
+             * ↓
+             * search_papers
+             * ↓
+             * PubMed
+             * ↓
+             * Evidence
+             */
+            EvidenceAgentResponseVO evidence =
+                    evidenceAgentService
+                            .answerWithEvidence(
+                                    evidenceQuestion
+                            );
+
+
+            /*
+             * Evidence → JSON
+             */
+            String evidenceJson =
+                    objectMapper.writeValueAsString(
+                            evidence
+                    );
+
+
+            /*
+             * =================================================
+             * 最终AI Coach Prompt
+             * =================================================
+             */
             String systemPrompt = """
-                    你是 SmartFit AI Coach，一个训练数据分析助手。
+                    你是 SmartFit AI Coach。
 
-                    请根据系统提供的真实训练数据，
-                    对本次训练进行简洁、谨慎、可执行的评价。
+                    你的任务是根据：
 
-                    必须遵守：
+                    1. 用户真实训练数据；
+                    2. 已计算好的训练统计；
+                    3. 计划与实际完成情况；
+                    4. 历史动作趋势；
+                    5. PubMed Evidence Agent提供的科学证据；
 
-                    1. 只能使用输入JSON已有的数据。
-                    2. 不要自行重新计算完成率、训练容量和趋势百分比。
-                    3. 不要编造用户没有提供的信息。
-                    4. 不进行疾病、损伤或医疗诊断。
-                    5. 数据不足时必须明确说明。
-                    6. 下一次训练建议必须具体可执行。
-                    7. positiveSignals、riskSignals、nextSessionAdvice每项最多3条。
-                    8. score必须是0到100之间的整数。
-                    9. 必须只返回合法JSON，不要返回Markdown代码块。
+                    对本次训练进行分析，
+                    并生成下一次训练计划的结构化调整建议。
 
-                    返回格式必须是：
-                    
-                     {
-                       "score": 82,
-                       "summary": "本次训练总体评价",
-                       "positiveSignals": [
-                         "积极信号1"
-                       ],
-                       "riskSignals": [
-                         "需要注意的信号1"
-                       ],
-                       "nextSessionAdvice": [
-                         "下一次训练建议1"
-                       ],
-                       "planAdjustments": [
-                         {
-                           "exerciseId": 1,
-                           "exerciseName": "杠铃卧推",
-                           "action": "KEEP",
-                           "currentWeight": 60,
-                           "recommendedWeight": 60,
-                           "targetSets": 3,
-                           "targetRepsMin": 8,
-                           "targetRepsMax": 10,
-                           "targetRpe": 8,
-                           "reason": "根据本次实际表现，下一次先保持当前重量并完成目标次数区间。"
-                         }
-                       ]
-                     }
-                    
-                     planAdjustments必须遵守：
-                    
-                     1. 本次计划中每个动作最多返回一条调整建议。
-                     2. exerciseId必须使用输入JSON中的真实exerciseId。
-                     3. exerciseName必须使用输入JSON中的真实动作名称。
-                     4. action只能是：
-                        KEEP
-                        INCREASE
-                        DECREASE
-                        ADJUST
-                     5. 不允许编造新的动作。
-                     6. recommendedWeight必须是明确数值；如果建议保持，则与currentWeight相同。
-                     7. 不确定时优先KEEP，不要激进增加重量。
-                     8. reason必须结合本次训练数据和历史趋势解释。
-                     9. 这只是计划调整建议，不代表用户已经确认修改训练计划。
+
+                    必须遵守以下规则：
+
+                    1. 用户训练数据是事实来源，
+                       不允许编造用户没有提供的数据。
+
+                    2. completionRate、volume、RPE、
+                       trend percentage等确定性指标，
+                       使用Java已经计算好的结果，
+                       不要自行重新计算。
+
+                    3. 科学训练结论优先依据
+                       Evidence Agent提供的PubMed证据。
+
+                    4. 不允许编造论文、
+                       PMID或研究结论。
+
+                    5. 如果Evidence中的limitations说明
+                       当前证据不足或属于间接证据，
+                       最终建议必须更加谨慎。
+
+                    6. 不进行疾病、损伤或医疗诊断。
+
+                    7. 数据不足时必须明确说明，
+                       不允许为了给建议而强行下结论。
+
+                    8. 不确定是否应该增加训练负荷时，
+                       优先给出保守的KEEP建议，
+                       而不是激进增加重量。
+
+                    9. planAdjustments只是建议，
+                       不能假设数据库里的训练计划已经修改。
+
+                    10. positiveSignals、
+                        riskSignals、
+                        nextSessionAdvice
+                        每项最多3条。
+
+                    11. score必须是0到100的整数。
+
+                    12. 必须只返回合法JSON，
+                        不要返回Markdown代码块。
+
+
+                    返回JSON格式必须为：
+
+                    {
+                      "score": 82,
+
+                      "summary":
+                        "本次训练总体评价",
+
+                      "positiveSignals": [
+                        "积极信号1"
+                      ],
+
+                      "riskSignals": [
+                        "风险信号1"
+                      ],
+
+                      "nextSessionAdvice": [
+                        "下一次建议1"
+                      ],
+
+                      "planAdjustments": [
+                        {
+                          "exerciseId": 1,
+                          "exerciseName": "杠铃卧推",
+                          "action": "KEEP",
+                          "currentWeight": 60,
+                          "recommendedWeight": 60,
+                          "targetSets": 3,
+                          "targetRepsMin": 8,
+                          "targetRepsMax": 10,
+                          "targetRpe": 8,
+                          "reason":
+                            "结合用户实际表现和科学证据得出的调整理由"
+                        }
+                      ]
+                    }
+
+
+                    planAdjustments必须遵守：
+
+                    1. 每个计划动作最多一条调整建议。
+
+                    2. exerciseId必须来自训练上下文。
+
+                    3. exerciseName必须来自训练上下文。
+
+                    4. action只能是：
+
+                       KEEP
+                       INCREASE
+                       DECREASE
+                       ADJUST
+
+                    5. 不允许新增训练上下文中不存在的动作。
+
+                    6. recommendedWeight必须是明确数值。
+
+                       KEEP时：
+                       recommendedWeight必须与currentWeight一致。
+
+                    7. targetSets、
+                       targetRepsMin、
+                       targetRepsMax、
+                       targetRpe
+                       必须是真实可执行的下一次训练目标。
+
+                    8. reason必须同时说明：
+
+                       用户数据为什么支持这个建议；
+
+                       Evidence如何影响这个判断。
+
+                    9. Evidence不足时，
+                       不要假装存在确定科学结论。
                     """;
 
 
+            /*
+             * =================================================
+             * 用户Prompt
+             * =================================================
+             */
             String userPrompt =
                     """
-                    请根据下面的 SmartFit 训练上下文进行分析。
+                    请根据下面两部分信息，
+                    对本次训练进行分析。
 
-                    请严格返回JSON。
 
-                    训练上下文：
+                    ===== PART 1: 用户真实训练上下文 =====
+
                     """
-                            + contextJson;
+                            + contextJson
+                            +
+                            """
+        
+        
+                            ===== PART 2: PubMed科学证据 =====
+        
+                            """
+                            + evidenceJson
+                            +
+                            """
+        
+        
+                            请结合用户真实训练表现和科学证据，
+                            生成最终JSON结果。
+        
+                            不允许返回JSON以外的内容。
+                            """;
 
 
-            // 真正调用DeepSeek
+            /*
+             * 4. 最终调用DeepSeek
+             */
             String aiJson =
                     deepSeekClient.generateJson(
                             systemPrompt,
@@ -323,7 +527,9 @@ public class AiCoachService {
                     );
 
 
-            // DeepSeek JSON → Java对象
+            /*
+             * 5. JSON → Java
+             */
             AiCoachResponse response =
                     objectMapper.readValue(
                             aiJson,
@@ -331,13 +537,17 @@ public class AiCoachService {
                     );
 
 
-            // 校验AI输出
+            /*
+             * 6. Java验证AI输出
+             */
             validateAiResponse(
                     response
             );
 
 
-            // 保存AI分析结果
+            /*
+             * 7. 保存数据库
+             */
             saveAnalysis(
                     context,
                     response,
@@ -350,6 +560,7 @@ public class AiCoachService {
 
         } catch (JsonProcessingException e) {
 
+
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
                     "AI返回格式解析失败"
@@ -360,7 +571,63 @@ public class AiCoachService {
 
     /*
      * =========================================================
-     * 5. 把AI分析保存到MySQL
+     * 5. 根据用户训练数据构造 Evidence Question
+     * =========================================================
+     */
+    private String buildEvidenceQuestion(
+            String contextJson
+    ) {
+
+
+        return """
+                You are researching scientific evidence
+                for a personalized resistance-training decision.
+
+                The following JSON contains a real user's:
+
+                - training goal;
+                - experience level;
+                - latest session summary;
+                - planned versus actual performance;
+                - exercise history and trends.
+
+                USER TRAINING CONTEXT:
+
+                """
+                + contextJson
+                +
+                """
+
+                Based on this training context,
+                identify the most relevant exercise-science question
+                needed to decide the user's next training progression.
+
+                Search scientific evidence about topics such as:
+
+                - progressive overload;
+                - resistance-training progression;
+                - hypertrophy;
+                - strength development;
+                - repetition ranges;
+                - RPE / RIR;
+                - proximity to failure;
+                - load progression;
+                - training volume.
+
+                Focus only on evidence that can materially affect
+                the next-session training decision.
+
+                The goal is NOT to provide generic fitness advice.
+
+                The goal is to determine what current scientific
+                evidence suggests for a user with THIS training context.
+                """;
+    }
+
+
+    /*
+     * =========================================================
+     * 6. 保存AI分析到数据库
      * =========================================================
      */
     private void saveAnalysis(
@@ -368,6 +635,7 @@ public class AiCoachService {
             AiCoachResponse response,
             String rawResponse
     ) throws JsonProcessingException {
+
 
         AiTrainingAnalysis analysis =
                 new AiTrainingAnalysis();
@@ -377,28 +645,39 @@ public class AiCoachService {
                 context.getUserId()
         );
 
+
         analysis.setSessionId(
                 context.getSessionId()
         );
+
 
         analysis.setModel(
                 model
         );
 
+
         analysis.setScore(
                 response.getScore()
         );
+
 
         analysis.setSummary(
                 response.getSummary()
         );
 
 
-        // List<String> → JSON字符串
+        /*
+         * List<String>
+         * ↓
+         * JSON String
+         */
         analysis.setPositiveSignals(
                 objectMapper.writeValueAsString(
+
                         response.getPositiveSignals() == null
+
                                 ? Collections.emptyList()
+
                                 : response.getPositiveSignals()
                 )
         );
@@ -406,8 +685,11 @@ public class AiCoachService {
 
         analysis.setRiskSignals(
                 objectMapper.writeValueAsString(
+
                         response.getRiskSignals() == null
+
                                 ? Collections.emptyList()
+
                                 : response.getRiskSignals()
                 )
         );
@@ -415,16 +697,28 @@ public class AiCoachService {
 
         analysis.setNextSessionAdvice(
                 objectMapper.writeValueAsString(
+
                         response.getNextSessionAdvice() == null
+
                                 ? Collections.emptyList()
+
                                 : response.getNextSessionAdvice()
                 )
         );
 
+
+        /*
+         * PlanAdjustmentProposalVO List
+         * ↓
+         * JSON
+         */
         analysis.setPlanAdjustments(
                 objectMapper.writeValueAsString(
+
                         response.getPlanAdjustments() == null
+
                                 ? Collections.emptyList()
+
                                 : response.getPlanAdjustments()
                 )
         );
@@ -435,7 +729,9 @@ public class AiCoachService {
         );
 
 
-        // 保存DeepSeek当时返回的原始JSON
+        /*
+         * 保存最终DeepSeek原始JSON
+         */
         analysis.setRawResponse(
                 rawResponse
         );
@@ -449,14 +745,20 @@ public class AiCoachService {
 
     /*
      * =========================================================
-     * 6. 把数据库记录恢复成前端需要的AiCoachResponse
+     * 7. 数据库对象 → API返回对象
+     *
+     * AiTrainingAnalysis
+     * ↓
+     * AiCoachResponse
      * =========================================================
      */
     private AiCoachResponse convertToResponse(
             AiTrainingAnalysis analysis
     ) {
 
+
         try {
+
 
             AiCoachResponse response =
                     new AiCoachResponse();
@@ -466,59 +768,70 @@ public class AiCoachService {
                     analysis.getScore()
             );
 
+
             response.setSummary(
                     analysis.getSummary()
             );
 
 
             response.setPositiveSignals(
-                    objectMapper.readValue(
-                            analysis.getPositiveSignals(),
-                            new TypeReference<List<String>>() {
-                            }
+                    readStringList(
+                            analysis.getPositiveSignals()
                     )
             );
 
 
             response.setRiskSignals(
-                    objectMapper.readValue(
-                            analysis.getRiskSignals(),
-                            new TypeReference<List<String>>() {
-                            }
+                    readStringList(
+                            analysis.getRiskSignals()
                     )
             );
 
 
             response.setNextSessionAdvice(
-                    objectMapper.readValue(
-                            analysis.getNextSessionAdvice(),
-                            new TypeReference<List<String>>() {
-                            }
+                    readStringList(
+                            analysis.getNextSessionAdvice()
                     )
             );
 
+
+            /*
+             * 兼容v1历史数据。
+             *
+             * v1可能没有planAdjustments。
+             */
             if (analysis.getPlanAdjustments() != null
                     && !analysis.getPlanAdjustments().isBlank()) {
 
+
                 response.setPlanAdjustments(
+
                         objectMapper.readValue(
+
                                 analysis.getPlanAdjustments(),
-                                new TypeReference<List<PlanAdjustmentProposalVO>>() {
+
+                                new TypeReference<
+                                        List<PlanAdjustmentProposalVO>
+                                        >() {
                                 }
                         )
                 );
 
+
             } else {
+
 
                 response.setPlanAdjustments(
                         Collections.emptyList()
                 );
             }
 
+
             return response;
 
 
         } catch (JsonProcessingException e) {
+
 
             throw new BusinessException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
@@ -530,14 +843,45 @@ public class AiCoachService {
 
     /*
      * =========================================================
-     * 7. 检查大模型输出是否合法
+     * 8. 安全读取数据库里的字符串数组JSON
+     * =========================================================
+     */
+    private List<String> readStringList(
+            String json
+    ) throws JsonProcessingException {
+
+
+        if (json == null
+                || json.isBlank()) {
+
+
+            return Collections.emptyList();
+        }
+
+
+        return objectMapper.readValue(
+
+                json,
+
+                new TypeReference<List<String>>() {
+                }
+        );
+    }
+
+
+    /*
+     * =========================================================
+     * 9. 验证AI Coach返回
      * =========================================================
      */
     private void validateAiResponse(
             AiCoachResponse response
     ) {
 
+
         if (response == null) {
+
+
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
                     "AI返回结果为空"
@@ -545,9 +889,13 @@ public class AiCoachService {
         }
 
 
+        /*
+         * Score必须0-100
+         */
         if (response.getScore() == null
                 || response.getScore() < 0
                 || response.getScore() > 100) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
@@ -556,8 +904,12 @@ public class AiCoachService {
         }
 
 
+        /*
+         * Summary不能为空
+         */
         if (response.getSummary() == null
                 || response.getSummary().isBlank()) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
@@ -565,25 +917,44 @@ public class AiCoachService {
             );
         }
 
+
+        /*
+         * v2/v3必须返回计划调整建议数组
+         */
         if (response.getPlanAdjustments() == null) {
+
+
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
                     "AI未返回训练计划调整建议"
             );
         }
     }
+
+
+    /*
+     * =========================================================
+     * 10. 用户确认后应用AI训练调整
+     * =========================================================
+     */
     @Transactional
-    public void applyPlanAdjustments(Long analysisId) {
+    public void applyPlanAdjustments(
+            Long analysisId
+    ) {
+
 
         /*
-         * 1. 找到这次AI分析
+         * 1. 查询AI分析
          */
         AiTrainingAnalysis analysis =
                 aiTrainingAnalysisMapper.findById(
                         analysisId
                 );
 
+
         if (analysis == null) {
+
+
             throw new BusinessException(
                     HttpStatus.NOT_FOUND,
                     "AI训练分析不存在"
@@ -592,11 +963,13 @@ public class AiCoachService {
 
 
         /*
-         * 2. 防止同一个Proposal重复应用
+         * 2. 防止重复应用
          */
         if (Boolean.TRUE.equals(
                 analysis.getApplied()
         )) {
+
+
             throw new BusinessException(
                     HttpStatus.CONFLICT,
                     "该训练调整建议已经应用"
@@ -605,14 +978,17 @@ public class AiCoachService {
 
 
         /*
-         * 3. 找到这次训练
+         * 3. 查询原训练Session
          */
         TrainingSession session =
                 trainingSessionMapper.findById(
                         analysis.getSessionId()
                 );
 
+
         if (session == null) {
+
+
             throw new BusinessException(
                     HttpStatus.NOT_FOUND,
                     "训练记录不存在"
@@ -621,10 +997,11 @@ public class AiCoachService {
 
 
         /*
-         * 自由训练没有planDayId，
-         * 就不存在可以修改的计划模板
+         * 自由训练没有planDayId。
          */
         if (session.getPlanDayId() == null) {
+
+
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     "该训练不是计划训练，无法应用计划调整"
@@ -632,14 +1009,31 @@ public class AiCoachService {
         }
 
 
+        /*
+         * 防止历史旧分析没有planAdjustments。
+         */
+        if (analysis.getPlanAdjustments() == null
+                || analysis.getPlanAdjustments().isBlank()) {
+
+
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "该AI分析没有可应用的训练调整"
+            );
+        }
+
+
         try {
 
+
             /*
-             * 4. 数据库JSON → Java Proposal
+             * 4. JSON → Proposal
              */
             List<PlanAdjustmentProposalVO> proposals =
                     objectMapper.readValue(
+
                             analysis.getPlanAdjustments(),
+
                             new TypeReference<
                                     List<PlanAdjustmentProposalVO>
                                     >() {
@@ -647,8 +1041,8 @@ public class AiCoachService {
                     );
 
 
-            if (proposals == null
-                    || proposals.isEmpty()) {
+            if (proposals.isEmpty()) {
+
 
                 throw new BusinessException(
                         HttpStatus.BAD_REQUEST,
@@ -658,7 +1052,7 @@ public class AiCoachService {
 
 
             /*
-             * 5. 查询现在数据库中真实的训练计划
+             * 5. 查询数据库真实计划
              */
             List<TrainingPlanExerciseVO> currentExercises =
                     trainingPlanExerciseMapper.findByPlanDayId(
@@ -667,43 +1061,52 @@ public class AiCoachService {
 
 
             /*
-             * 6. 一条一条校验 + 应用
+             * 6. 一条一条验证
              */
             for (PlanAdjustmentProposalVO proposal
                     : proposals) {
+
+
+                if (proposal == null
+                        || proposal.getExerciseId() == null) {
+
+
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST,
+                            "AI训练调整建议缺少动作信息"
+                    );
+                }
+
 
                 TrainingPlanExerciseVO current =
                         currentExercises
                                 .stream()
                                 .filter(
                                         exercise ->
-                                                exercise.getExerciseId()
+                                                exercise
+                                                        .getExerciseId()
                                                         .equals(
                                                                 proposal.getExerciseId()
                                                         )
                                 )
                                 .findFirst()
                                 .orElseThrow(
-                                        () -> new BusinessException(
-                                                HttpStatus.BAD_REQUEST,
-                                                "AI建议包含当前计划中不存在的动作"
-                                        )
+                                        () ->
+                                                new BusinessException(
+                                                        HttpStatus.BAD_REQUEST,
+                                                        "AI建议包含当前计划中不存在的动作"
+                                                )
                                 );
 
 
                 /*
-                 * 7. 防止应用一个已经过期的Proposal
-                 *
-                 * 例如：
-                 * AI生成建议时计划重量是60kg，
-                 * 但用户后来手动改成了62.5kg。
-                 *
-                 * 这时不能再偷偷套用旧AI建议。
+                 * 7. 防止旧Proposal覆盖用户后来修改的计划。
                  */
                 if (!sameWeight(
                         current.getTargetWeightKg(),
                         proposal.getCurrentWeight()
                 )) {
+
 
                     throw new BusinessException(
                             HttpStatus.CONFLICT,
@@ -713,7 +1116,7 @@ public class AiCoachService {
 
 
                 /*
-                 * 8. 基础安全校验
+                 * 8. Java业务校验
                  */
                 validatePlanAdjustment(
                         proposal
@@ -721,21 +1124,30 @@ public class AiCoachService {
 
 
                 /*
-                 * 9. 真正更新计划
+                 * 9. 真正UPDATE计划
                  */
                 int updated =
                         trainingPlanExerciseMapper.updateTargets(
+
                                 session.getPlanDayId(),
+
                                 proposal.getExerciseId(),
+
                                 proposal.getRecommendedWeight(),
+
                                 proposal.getTargetSets(),
+
                                 proposal.getTargetRepsMin(),
+
                                 proposal.getTargetRepsMax(),
+
                                 proposal.getTargetRpe()
                         );
 
 
                 if (updated != 1) {
+
+
                     throw new BusinessException(
                             HttpStatus.INTERNAL_SERVER_ERROR,
                             "更新训练计划失败"
@@ -745,8 +1157,8 @@ public class AiCoachService {
 
 
             /*
-             * 10. 整批修改成功后，
-             * 才把AI分析标记为已应用
+             * 10. 整批更新成功后
+             * 才标记为已应用。
              */
             int marked =
                     aiTrainingAnalysisMapper.markAsApplied(
@@ -755,6 +1167,8 @@ public class AiCoachService {
 
 
             if (marked != 1) {
+
+
                 throw new BusinessException(
                         HttpStatus.CONFLICT,
                         "训练调整建议状态更新失败"
@@ -764,30 +1178,74 @@ public class AiCoachService {
 
         } catch (JsonProcessingException e) {
 
+
             throw new BusinessException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "读取AI训练调整建议失败"
             );
         }
     }
+
+
+    /*
+     * =========================================================
+     * 11. BigDecimal重量比较
+     * =========================================================
+     */
     private boolean sameWeight(
             BigDecimal first,
             BigDecimal second
     ) {
 
-        if (first == null && second == null) {
+
+        if (first == null
+                && second == null) {
+
+
             return true;
         }
 
-        if (first == null || second == null) {
+
+        if (first == null
+                || second == null) {
+
+
             return false;
         }
 
-        return first.compareTo(second) == 0;
+
+        /*
+         * 60.0
+         * 和
+         * 60.00
+         *
+         * 数值应视为相等。
+         */
+        return first.compareTo(
+                second
+        ) == 0;
     }
+
+
+    /*
+     * =========================================================
+     * 12. AI Plan Adjustment基础业务校验
+     * =========================================================
+     */
     private void validatePlanAdjustment(
             PlanAdjustmentProposalVO proposal
     ) {
+
+
+        if (proposal == null) {
+
+
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "AI返回了空的训练调整建议"
+            );
+        }
+
 
         List<String> allowedActions =
                 List.of(
@@ -798,10 +1256,14 @@ public class AiCoachService {
                 );
 
 
+        /*
+         * action是否合法
+         */
         if (proposal.getAction() == null
                 || !allowedActions.contains(
                 proposal.getAction()
         )) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
@@ -810,8 +1272,25 @@ public class AiCoachService {
         }
 
 
+        /*
+         * exerciseId不能为空
+         */
+        if (proposal.getExerciseId() == null) {
+
+
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "AI训练调整缺少exerciseId"
+            );
+        }
+
+
+        /*
+         * 组数必须 > 0
+         */
         if (proposal.getTargetSets() == null
                 || proposal.getTargetSets() <= 0) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
@@ -820,11 +1299,15 @@ public class AiCoachService {
         }
 
 
+        /*
+         * reps范围是否合法
+         */
         if (proposal.getTargetRepsMin() == null
                 || proposal.getTargetRepsMax() == null
                 || proposal.getTargetRepsMin() <= 0
                 || proposal.getTargetRepsMin()
                 > proposal.getTargetRepsMax()) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
@@ -833,9 +1316,16 @@ public class AiCoachService {
         }
 
 
+        /*
+         * 重量不能为负数
+         */
         if (proposal.getRecommendedWeight() != null
-                && proposal.getRecommendedWeight()
-                .compareTo(BigDecimal.ZERO) < 0) {
+                && proposal
+                .getRecommendedWeight()
+                .compareTo(
+                        BigDecimal.ZERO
+                ) < 0) {
+
 
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
