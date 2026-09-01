@@ -22,7 +22,8 @@ public interface AiTrainingAnalysisMapper {
                     next_session_advice,
                     plan_adjustments,
                     prompt_version,
-                    raw_response
+                    raw_response,
+                    nutrition_analysis
             )
             VALUES
             (
@@ -36,7 +37,8 @@ public interface AiTrainingAnalysisMapper {
                     #{nextSessionAdvice},
                     #{planAdjustments},
                     #{promptVersion},
-                    #{rawResponse}
+                    #{rawResponse},
+                    #{nutritionAnalysis}
             )
             """)
     @Options(

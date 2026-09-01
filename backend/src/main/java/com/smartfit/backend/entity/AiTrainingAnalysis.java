@@ -34,6 +34,8 @@ public class AiTrainingAnalysis {
 
     private LocalDateTime createdTime;
 
+    private String nutritionAnalysis;
+
     public Boolean getApplied() {
         return applied;
     }
@@ -42,6 +44,14 @@ public class AiTrainingAnalysis {
         this.applied = applied;
     }
 
+    public String getNutritionAnalysis() {
+        return nutritionAnalysis;
+    }
+
+
+    public void setNutritionAnalysis(String nutritionAnalysis) {
+        this.nutritionAnalysis = nutritionAnalysis;
+    }
     public LocalDateTime getAppliedTime() {
         return appliedTime;
     }

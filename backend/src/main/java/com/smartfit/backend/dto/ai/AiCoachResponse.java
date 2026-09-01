@@ -1,6 +1,7 @@
 package com.smartfit.backend.dto.ai;
 
 import com.smartfit.backend.vo.PlanAdjustmentProposalVO;
+import com.smartfit.backend.vo.NutritionAnalysisVO;
 
 import java.util.List;
 
@@ -18,6 +19,9 @@ public class AiCoachResponse {
 
     // 新增：下一次训练计划的结构化调整建议
     private List<PlanAdjustmentProposalVO> planAdjustments;
+
+    // 新增：营养分析建议
+    private NutritionAnalysisVO nutritionAnalysis;
 
 
     public Integer getScore() {
@@ -74,5 +78,15 @@ public class AiCoachResponse {
             List<PlanAdjustmentProposalVO> planAdjustments
     ) {
         this.planAdjustments = planAdjustments;
+    }
+    public NutritionAnalysisVO getNutritionAnalysis() {
+        return nutritionAnalysis;
+    }
+
+
+    public void setNutritionAnalysis(
+            NutritionAnalysisVO nutritionAnalysis
+    ) {
+        this.nutritionAnalysis = nutritionAnalysis;
     }
 }

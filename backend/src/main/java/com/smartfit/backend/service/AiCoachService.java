@@ -14,14 +14,7 @@ import com.smartfit.backend.mapper.AiTrainingAnalysisMapper;
 import com.smartfit.backend.mapper.FitnessProfileMapper;
 import com.smartfit.backend.mapper.TrainingPlanExerciseMapper;
 import com.smartfit.backend.mapper.TrainingSessionMapper;
-import com.smartfit.backend.vo.EvidenceAgentResponseVO;
-import com.smartfit.backend.vo.ExerciseTrendVO;
-import com.smartfit.backend.vo.PlanAdjustmentProposalVO;
-import com.smartfit.backend.vo.PlanExerciseComparisonVO;
-import com.smartfit.backend.vo.TrainingPlanComparisonVO;
-import com.smartfit.backend.vo.TrainingPlanExerciseVO;
-import com.smartfit.backend.vo.TrainingSessionDetailVO;
-import com.smartfit.backend.vo.TrainingSessionSummaryVO;
+import com.smartfit.backend.vo.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,7 +24,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+import java.time.LocalDate;
 
 @Service
 public class AiCoachService {
@@ -44,6 +37,8 @@ public class AiCoachService {
     private final TrainingSessionMapper trainingSessionMapper;
     private final TrainingPlanExerciseMapper trainingPlanExerciseMapper;
     private final EvidenceAgentService evidenceAgentService;
+
+    private final NutritionService nutritionService;
 
     private final String model;
 
@@ -58,6 +53,7 @@ public class AiCoachService {
 
     public AiCoachService(
             TrainingService trainingService,
+            NutritionService nutritionService,
             FitnessProfileMapper fitnessProfileMapper,
             DeepSeekClient deepSeekClient,
             ObjectMapper objectMapper,
@@ -68,15 +64,35 @@ public class AiCoachService {
             @Value("${deepseek.model}") String model
     ) {
 
-        this.trainingService = trainingService;
-        this.fitnessProfileMapper = fitnessProfileMapper;
-        this.deepSeekClient = deepSeekClient;
-        this.objectMapper = objectMapper;
-        this.aiTrainingAnalysisMapper = aiTrainingAnalysisMapper;
-        this.trainingSessionMapper = trainingSessionMapper;
-        this.trainingPlanExerciseMapper = trainingPlanExerciseMapper;
-        this.evidenceAgentService = evidenceAgentService;
-        this.model = model;
+        this.trainingService =
+                trainingService;
+
+        this.nutritionService =
+                nutritionService;
+
+        this.fitnessProfileMapper =
+                fitnessProfileMapper;
+
+        this.deepSeekClient =
+                deepSeekClient;
+
+        this.objectMapper =
+                objectMapper;
+
+        this.aiTrainingAnalysisMapper =
+                aiTrainingAnalysisMapper;
+
+        this.trainingSessionMapper =
+                trainingSessionMapper;
+
+        this.trainingPlanExerciseMapper =
+                trainingPlanExerciseMapper;
+
+        this.evidenceAgentService =
+                evidenceAgentService;
+
+        this.model =
+                model;
     }
 
 
@@ -158,6 +174,36 @@ public class AiCoachService {
             );
         }
 
+        /*
+         * =========================================================
+         * Nutrition Context
+         * =========================================================
+         */
+        LocalDate sessionDate =
+                session.getSessionDate();
+
+
+        List<DailyNutritionSummaryVO> dailyNutrition =
+                nutritionService.getNutritionSummary(
+                        session.getUserId(),
+                        sessionDate,
+                        sessionDate
+                );
+
+
+        DailyNutritionSummaryVO nutritionOnSessionDate =
+                dailyNutrition.isEmpty()
+                        ? null
+                        : dailyNutrition.get(0);
+
+
+
+        NutritionPeriodSummaryVO recentNutrition7Days =
+                nutritionService.getNutritionPeriodSummary(
+                        session.getUserId(),
+                        sessionDate.minusDays(6),
+                        sessionDate
+                );
 
         /*
          * 组装AI Context
@@ -165,6 +211,17 @@ public class AiCoachService {
         AiCoachRequest request =
                 new AiCoachRequest();
 
+        request.setSessionDate(
+                sessionDate
+        );
+
+        request.setNutritionOnSessionDate(
+                nutritionOnSessionDate
+        );
+
+        request.setRecentNutrition7Days(
+                recentNutrition7Days
+        );
 
         request.setUserId(
                 session.getUserId()
@@ -352,12 +409,13 @@ public class AiCoachService {
                     你是 SmartFit AI Coach。
 
                     你的任务是根据：
-
+                    
                     1. 用户真实训练数据；
                     2. 已计算好的训练统计；
                     3. 计划与实际完成情况；
                     4. 历史动作趋势；
-                    5. PubMed Evidence Agent提供的科学证据；
+                    5. 用户饮食记录及营养统计；
+                    6. PubMed Evidence Agent提供的科学证据；
 
                     对本次训练进行分析，
                     并生成下一次训练计划的结构化调整建议。
@@ -394,51 +452,96 @@ public class AiCoachService {
 
                     9. planAdjustments只是建议，
                        不能假设数据库里的训练计划已经修改。
-
-                    10. positiveSignals、
+                    
+                    10. 关于营养分析：
+                    
+                        a.
+                        nutritionOnSessionDate代表训练当天饮食记录。
+                    
+                        b.
+                        recentNutrition7Days代表最近7天饮食记录情况。
+                    
+                        c.
+                        recordedDays和recordCoveragePercent代表数据完整程度。
+                    
+                        d.
+                        如果饮食记录天数不足，
+                           不允许推断用户长期饮食习惯。
+                    
+                        e.
+                        如果记录不足，
+                           必须明确说明：
+                           "当前饮食数据不足，无法进行长期判断。"
+                    
+                        f.
+                        营养建议只能作为辅助建议，
+                           不进行医学或疾病相关判断。
+                    11. positiveSignals、
                         riskSignals、
                         nextSessionAdvice
                         每项最多3条。
 
-                    11. score必须是0到100的整数。
+                    12. score必须是0到100的整数。
 
-                    12. 必须只返回合法JSON，
+                    13. 必须只返回合法JSON，
                         不要返回Markdown代码块。
 
 
                     返回JSON格式必须为：
 
                     {
-                      "score": 82,
-
+                      "score":82,
+                    
                       "summary":
                         "本次训练总体评价",
-
-                      "positiveSignals": [
+                    
+                    
+                      "nutritionAnalysis":
+                      {
+                        "status":
+                          "INSUFFICIENT_DATA",
+                    
+                        "summary":
+                          "营养情况分析",
+                    
+                        "suggestions":
+                        [
+                          "营养建议1"
+                        ]
+                      },
+                    
+                    
+                      "positiveSignals":
+                      [
                         "积极信号1"
                       ],
-
-                      "riskSignals": [
+                    
+                    
+                      "riskSignals":
+                      [
                         "风险信号1"
                       ],
-
-                      "nextSessionAdvice": [
+                    
+                    
+                      "nextSessionAdvice":
+                      [
                         "下一次建议1"
                       ],
-
-                      "planAdjustments": [
+                    
+                    
+                      "planAdjustments":
+                      [
                         {
-                          "exerciseId": 1,
-                          "exerciseName": "杠铃卧推",
-                          "action": "KEEP",
-                          "currentWeight": 60,
-                          "recommendedWeight": 60,
-                          "targetSets": 3,
-                          "targetRepsMin": 8,
-                          "targetRepsMax": 10,
-                          "targetRpe": 8,
-                          "reason":
-                            "结合用户实际表现和科学证据得出的调整理由"
+                          "exerciseId":1,
+                          "exerciseName":"杠铃卧推",
+                          "action":"KEEP",
+                          "currentWeight":60,
+                          "recommendedWeight":60,
+                          "targetSets":3,
+                          "targetRepsMin":8,
+                          "targetRepsMax":10,
+                          "targetRpe":8,
+                          "reason":"调整理由"
                         }
                       ]
                     }
@@ -480,6 +583,21 @@ public class AiCoachService {
 
                     9. Evidence不足时，
                        不要假装存在确定科学结论。
+                    
+                    10. status只能为：
+                       SUFFICIENT_DATA
+                       INSUFFICIENT_DATA
+                    
+                    11. 必须根据nutritionOnSessionDate和recentNutrition7Days判断。
+                    
+                    12. 如果recentNutrition7Days.recordedDays较少，
+                       或recordCoveragePercent较低：
+                    
+                       必须说明饮食数据不足。
+                    
+                    13. 不允许根据单次饮食记录推断长期饮食习惯。
+                    
+                    14. suggestions最多3条。
                     """;
 
 
@@ -722,6 +840,11 @@ public class AiCoachService {
                                 : response.getPlanAdjustments()
                 )
         );
+        analysis.setNutritionAnalysis(
+                objectMapper.writeValueAsString(
+                        response.getNutritionAnalysis()
+                )
+        );
 
 
         analysis.setPromptVersion(
@@ -739,6 +862,11 @@ public class AiCoachService {
 
         aiTrainingAnalysisMapper.insert(
                 analysis
+        );
+        analysis.setNutritionAnalysis(
+                objectMapper.writeValueAsString(
+                        response.getNutritionAnalysis()
+                )
         );
     }
 
@@ -800,6 +928,11 @@ public class AiCoachService {
              *
              * v1可能没有planAdjustments。
              */
+            /*
+             * 兼容v1历史数据。
+             *
+             * v1可能没有planAdjustments。
+             */
             if (analysis.getPlanAdjustments() != null
                     && !analysis.getPlanAdjustments().isBlank()) {
 
@@ -824,6 +957,26 @@ public class AiCoachService {
                 response.setPlanAdjustments(
                         Collections.emptyList()
                 );
+
+            }
+
+
+            /*
+             * Nutrition Analysis
+             *
+             * 不依赖planAdjustments
+             */
+            if (analysis.getNutritionAnalysis() != null
+                    && !analysis.getNutritionAnalysis().isBlank()) {
+
+
+                response.setNutritionAnalysis(
+                        objectMapper.readValue(
+                                analysis.getNutritionAnalysis(),
+                                NutritionAnalysisVO.class
+                        )
+                );
+
             }
 
 
