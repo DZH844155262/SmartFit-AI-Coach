@@ -39,6 +39,31 @@ public interface TrainingPlanExerciseMapper {
             Long planDayId
     );
 
+    @Select("""
+        SELECT
+            tpe.id AS plan_exercise_id,
+            tpe.exercise_id,
+            e.name AS exercise_name,
+            e.instructions,
+            tpe.exercise_order,
+            tpe.target_sets,
+            tpe.target_reps_min,
+            tpe.target_reps_max,
+            tpe.target_weight_kg,
+            tpe.target_rpe,
+            tpe.notes
+        FROM training_plan_exercise tpe
+
+        JOIN exercise e
+            ON e.id = tpe.exercise_id
+
+        WHERE tpe.plan_day_id = #{planDayId}
+          AND tpe.exercise_id = #{exerciseId}
+        """)
+    TrainingPlanExerciseVO findByPlanDayIdAndExerciseId(
+            @Param("planDayId") Long planDayId,
+            @Param("exerciseId") Long exerciseId
+    );
     @Insert("""
             INSERT INTO training_plan_exercise
             (

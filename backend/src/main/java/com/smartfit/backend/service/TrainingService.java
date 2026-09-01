@@ -18,7 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.smartfit.backend.vo.TrainingExerciseVO;
 import com.smartfit.backend.vo.TrainingSessionDetailVO;
 import com.smartfit.backend.vo.TrainingSetVO;
-
+import com.smartfit.backend.dto.TrainingSessionStartRequest;
+import com.smartfit.backend.vo.TrainingSessionStartVO;
+import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -40,7 +43,8 @@ import com.smartfit.backend.vo.PlanExerciseComparisonVO;
 import com.smartfit.backend.vo.TrainingPlanComparisonVO;
 import com.smartfit.backend.vo.TrainingPlanExerciseVO;
 import com.smartfit.backend.mapper.TrainingPlanExerciseMapper;
-
+import com.smartfit.backend.dto.TrainingSetAppendRequest;
+import com.smartfit.backend.vo.TrainingSetRecordVO;
 
 @Service
 public class TrainingService {
@@ -75,6 +79,222 @@ public class TrainingService {
         this.trainingPlanExerciseMapper = trainingPlanExerciseMapper;
     }
 
+    @Transactional
+    public TrainingSessionSummaryVO finishSession(
+            Long sessionId
+    ) {
+
+        /*
+         * 1. Session必须存在
+         */
+        TrainingSession session =
+                trainingSessionMapper.findById(
+                        sessionId
+                );
+
+
+        if (session == null) {
+
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练记录不存在"
+            );
+        }
+
+
+        /*
+         * 2. 已经结束过了，不允许重复结束
+         */
+        if (session.getEndedTime() != null) {
+
+            throw new BusinessException(
+                    HttpStatus.CONFLICT,
+                    "该训练已经结束"
+            );
+        }
+
+
+        /*
+         * 3. 写入结束时间
+         */
+        int updated =
+                trainingSessionMapper.finishSession(
+                        sessionId
+                );
+
+
+        if (updated == 0) {
+
+            throw new BusinessException(
+                    HttpStatus.CONFLICT,
+                    "训练结束状态更新失败"
+            );
+        }
+
+
+        /*
+         * 4. 返回本场训练总结
+         *
+         * 直接复用之前已经写好的确定性统计逻辑。
+         */
+        return getSessionSummary(
+                sessionId
+        );
+    }
+    @Transactional
+    public TrainingSetRecordVO appendSet(
+            Long trainingExerciseId,
+            TrainingSetAppendRequest request
+    ) {
+
+        /*
+         * 1. trainingExercise必须存在
+         */
+        if (trainingExerciseMapper.countById(
+                trainingExerciseId
+        ) == 0) {
+
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练动作记录不存在"
+            );
+        }
+
+
+        /*
+         * 2. 查询目前已经做到第几组
+         *
+         * 第一次：
+         * max = 0
+         *
+         * 第二次：
+         * max = 1
+         */
+        Integer currentMaxSetNumber =
+                trainingSetMapper.findMaxSetNumber(
+                        trainingExerciseId
+                );
+
+
+        /*
+         * 3. 自动生成下一组组号
+         */
+        int nextSetNumber =
+                currentMaxSetNumber + 1;
+
+
+        /*
+         * 4. setType为空时，
+         * 默认按照正式工作组WORKING处理。
+         */
+        String setType =
+                request.getSetType();
+
+        if (setType == null
+                || setType.isBlank()) {
+
+            setType = "WORKING";
+        }
+
+
+        /*
+         * 5. 创建TrainingSet实体
+         */
+        TrainingSet trainingSet =
+                new TrainingSet();
+
+
+        trainingSet.setTrainingExerciseId(
+                trainingExerciseId
+        );
+
+
+        trainingSet.setSetNumber(
+                nextSetNumber
+        );
+
+
+        trainingSet.setWeightKg(
+                request.getWeightKg()
+        );
+
+
+        trainingSet.setReps(
+                request.getReps()
+        );
+
+
+        trainingSet.setRpe(
+                request.getRpe()
+        );
+
+
+        trainingSet.setSetType(
+                setType
+        );
+
+
+        /*
+         * 用户点击“完成本组”以后才调用这个接口，
+         * 因此这一组已经完成。
+         */
+        trainingSet.setCompleted(
+                true
+        );
+
+
+        /*
+         * 6. 保存到数据库
+         */
+        trainingSetMapper.insert(
+                trainingSet
+        );
+
+
+        /*
+         * 7. 返回给前端
+         */
+        TrainingSetRecordVO result =
+                new TrainingSetRecordVO();
+
+
+        result.setTrainingExerciseId(
+                trainingExerciseId
+        );
+
+
+        result.setSetNumber(
+                nextSetNumber
+        );
+
+
+        result.setWeightKg(
+                request.getWeightKg()
+        );
+
+
+        result.setReps(
+                request.getReps()
+        );
+
+
+        result.setRpe(
+                request.getRpe()
+        );
+
+
+        result.setSetType(
+                setType
+        );
+
+
+        result.setCompleted(
+                true
+        );
+
+
+        return result;
+    }
     @Transactional
     public TrainingSession createSession(
             Long userId,
@@ -228,6 +448,250 @@ public class TrainingService {
         // session.id 已经由 MyBatis 自动回填
         return session;
     }
+
+    @Transactional
+    public TrainingSessionStartVO startPlannedExerciseSession(
+            Long userId,
+            TrainingSessionStartRequest request
+    ) {
+
+        /*
+         * 1. 用户必须存在
+         */
+        if (appUserMapper.countById(userId) == 0) {
+
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "用户不存在"
+            );
+        }
+
+
+        /*
+         * 2. Plan Day必须存在
+         */
+        TrainingPlanDay planDay =
+                trainingPlanDayMapper.findById(
+                        request.getPlanDayId()
+                );
+
+
+        if (planDay == null) {
+
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "训练计划日不存在"
+            );
+        }
+
+
+        /*
+         * 3. 这个Plan必须属于当前用户
+         *
+         * 防止用户1拿着用户2的planDayId启动训练。
+         */
+        if (trainingPlanMapper.countByIdAndUserId(
+                planDay.getPlanId(),
+                userId
+        ) == 0) {
+
+            throw new BusinessException(
+                    HttpStatus.FORBIDDEN,
+                    "无权使用该训练计划"
+            );
+        }
+
+
+        /*
+         * 4. 用户选择的动作必须真的属于这个Plan Day
+         */
+        TrainingPlanExerciseVO target =
+                trainingPlanExerciseMapper
+                        .findByPlanDayIdAndExerciseId(
+                                request.getPlanDayId(),
+                                request.getExerciseId()
+                        );
+
+
+        if (target == null) {
+
+            throw new BusinessException(
+                    HttpStatus.NOT_FOUND,
+                    "当前训练计划中没有这个动作"
+            );
+        }
+
+
+        /*
+         * =========================================================
+         * 5. 创建training_session
+         *
+         * 注意：
+         * 此时只是“开始训练”，
+         * 还没有任何训练组。
+         * =========================================================
+         */
+        TrainingSession session =
+                new TrainingSession();
+
+
+        session.setUserId(
+                userId
+        );
+
+
+        session.setPlanDayId(
+                request.getPlanDayId()
+        );
+
+
+        /*
+         * 用户现在点击开始训练，
+         * 所以训练日期使用当前日期。
+         */
+        session.setSessionDate(
+                LocalDate.now()
+        );
+
+        session.setTitle(
+                planDay.getTitle()
+        );
+
+        session.setNotes(
+                null
+        );
+
+
+        /*
+         * 用户点击“开始训练”的真实时间。
+         */
+        session.setStartedTime(
+                LocalDateTime.now()
+        );
+
+
+        /*
+         * 当前训练还没有结束，
+         * 所以结束时间保持NULL。
+         */
+        session.setEndedTime(
+                null
+        );
+
+
+        trainingSessionMapper.insert(
+                session
+        );
+
+
+        /*
+         * =========================================================
+         * 6. 创建本次training_exercise
+         *
+         * 现在表示：
+         *
+         * Session已经开始，
+         * 而且用户确认要练这个动作。
+         *
+         * 但是还没有training_set。
+         * =========================================================
+         */
+        TrainingExercise trainingExercise =
+                new TrainingExercise();
+
+
+        trainingExercise.setSessionId(
+                session.getId()
+        );
+
+
+        trainingExercise.setExerciseId(
+                request.getExerciseId()
+        );
+
+
+        trainingExercise.setExerciseOrder(
+                target.getExerciseOrder()
+        );
+
+
+        trainingExercise.setNotes(
+                target.getNotes()
+        );
+
+
+        trainingExerciseMapper.insert(
+                trainingExercise
+        );
+
+
+        /*
+         * =========================================================
+         * 7. 返回前端
+         * =========================================================
+         */
+        TrainingSessionStartVO result =
+                new TrainingSessionStartVO();
+
+
+        result.setSessionId(
+                session.getId()
+        );
+
+
+        result.setTrainingExerciseId(
+                trainingExercise.getId()
+        );
+
+
+        result.setPlanDayId(
+                request.getPlanDayId()
+        );
+
+
+        result.setExerciseId(
+                target.getExerciseId()
+        );
+
+
+        result.setExerciseName(
+                target.getExerciseName()
+        );
+
+
+        result.setTargetSets(
+                target.getTargetSets()
+        );
+
+
+        result.setTargetRepsMin(
+                target.getTargetRepsMin()
+        );
+
+
+        result.setTargetRepsMax(
+                target.getTargetRepsMax()
+        );
+
+
+        result.setTargetWeightKg(
+                target.getTargetWeightKg()
+        );
+
+
+        result.setTargetRpe(
+                target.getTargetRpe()
+        );
+
+
+        result.setNotes(
+                target.getNotes()
+        );
+
+
+        return result;
+    }
+
     public TrainingSessionDetailVO getSessionDetail(Long sessionId) {
 
         // 1. 查询训练 Session

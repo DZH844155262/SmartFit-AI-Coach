@@ -7,11 +7,20 @@ import org.apache.ibatis.annotations.Select;
 import com.smartfit.backend.vo.TrainingSessionListItemVO;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-
+import org.apache.ibatis.annotations.Update;
 import java.util.List;
 
 public interface TrainingSessionMapper {
 
+    @Update("""
+        UPDATE training_session
+        SET ended_time = CURRENT_TIMESTAMP
+        WHERE id = #{sessionId}
+          AND ended_time IS NULL
+        """)
+    int finishSession(
+            @Param("sessionId") Long sessionId
+    );
     @Insert("""
         INSERT INTO training_session
         (
