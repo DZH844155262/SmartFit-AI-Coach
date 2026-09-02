@@ -11,7 +11,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Component
 public class DeepSeekClient {
 
@@ -40,6 +42,10 @@ public class DeepSeekClient {
             String systemPrompt,
             String userPrompt
     ) {
+        log.info(
+                "Calling DeepSeek model={}",
+                model
+        );
 
         if (apiKey == null || apiKey.isBlank()) {
             throw new BusinessException(
@@ -122,6 +128,9 @@ public class DeepSeekClient {
                         && !contentNode.isNull()
                         && !contentNode.asText().isBlank()) {
 
+                    log.info(
+                            "DeepSeek response received successfully"
+                    );
                     return contentNode.asText();
                 }
 
@@ -140,6 +149,11 @@ public class DeepSeekClient {
                 throw e;
 
             } catch (Exception e) {
+
+                log.error(
+                        "DeepSeek call failed",
+                        e
+                );
 
                 throw new BusinessException(
                         HttpStatus.BAD_GATEWAY,
@@ -238,6 +252,11 @@ public class DeepSeekClient {
             );
 
         } catch (Exception e) {
+            log.error(
+                    "DeepSeek call failed",
+                    e
+            );
+
 
             throw new BusinessException(
                     HttpStatus.BAD_GATEWAY,
